@@ -1,0 +1,24 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# SQLite database
+*.sqlite3
+*.db
+
+# Virtual environment
+venv/
+
+# IDE files
+.vscode/
+.idea/
+
+# Logs
+logs/
+*.log
+
+# Compiled files
+*.so
+*.dll
+*.dylib
+*.pyd
