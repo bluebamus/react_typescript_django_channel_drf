@@ -1,15 +1,80 @@
 from django.db.models import Count
-from rest_framework import viewsets
+from django.shortcuts import get_object_or_404
+from drf_spectacular.utils import extend_schema
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed, ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Server
+from .models import Category, Server
 from .schema import server_list_docs
-from .serializer import ServerSerializer
+from .serializer import CategorySerializer, ServerSerializer
+
+
+class ServerMemebershipViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated]
+
+    def create(self, request, server_id):
+        server = get_object_or_404(Server, id=server_id)
+
+        user = request.user
+
+        if server.member.filter(id=user.id).exists():
+            return Response(
+                {"error": "User is already a member"}, status=status.HTTP_409_CONFLICT
+            )
+
+        server.member.add(user)
+
+        return Response(
+            {"message": "User joined server successfully"}, status=status.HTTP_200_OK
+        )
+
+    @action(detail=False, methods=["DELETE"])
+    def remove_member(self, request, server_id):
+        server = get_object_or_404(Server, id=server_id)
+        user = request.user
+
+        if not server.member.filter(id=user.id).exists():
+            return Response(
+                {"error": "User is not a member"}, status=status.HTTP_404_NOT_FOUND
+            )
+
+        if server.owner == user:
+            return Response(
+                {"error": "Owners cannot be removed as a member"},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        server.member.remove(user)
+
+        return Response(
+            {"message": "User removed from server..."}, status=status.HTTP_200_OK
+        )
+
+    @action(detail=False, methods=["GET"])
+    def is_member(self, request, server_id=None):
+        server = get_object_or_404(Server, id=server_id)
+        user = request.user
+
+        is_member = server.member.filter(id=user.id).exists()
+
+        return Response({"is_member": is_member})
+
+
+class CategoryListViewSet(viewsets.ViewSet):
+    queryset = Category.objects.all()
+
+    @extend_schema(responses=CategorySerializer)
+    def list(self, request):
+        serializer = CategorySerializer(self.queryset, many=True)
+        return Response(serializer.data)
 
 
 class ServerListViewSet(viewsets.ViewSet):
     queryset = Server.objects.all()
+    # permission_classes = [IsAuthenticated]
 
     @server_list_docs
     def list(self, request):
@@ -47,37 +112,6 @@ class ServerListViewSet(viewsets.ViewSet):
         the following request:
 
             GET /servers/?by_user=true&qty=10
-
-
-
-        서버 목록을 다양한 매개변수로 필터링하여 반환합니다.
-
-        이 메서드는 `request` 객체의 쿼리 매개변수를 기반으로 서버의 queryset을 검색합니다.
-        지원되는 쿼리 매개변수는 다음과 같습니다:
-
-        - `category`: 카테고리 이름으로 서버를 필터링합니다.
-        - `qty`: 반환할 서버의 개수를 제한합니다.
-        - `by_user`: 특정 사용자 ID를 기준으로 서버를 필터링하며, 해당 사용자가 멤버로 속한 서버만 반환합니다.
-        - `by_serverid`: 특정 서버 ID를 기준으로 서버를 필터링합니다.
-        - `with_num_members`: 각 서버에 속한 멤버 수를 함께 표시합니다.
-
-        Args:
-            request: 쿼리 매개변수를 포함하는 Django Request 객체.
-
-        Returns:
-            지정된 매개변수에 따라 필터링된 서버 queryset.
-
-        Raises:
-            AuthenticationFailed: `by_user` 또는 `by_serverid` 매개변수가 포함되었으나 사용자가 인증되지 않은 경우.
-            ValidationError: 쿼리 매개변수의 파싱 또는 검증 오류 발생 시.
-                예를 들어, `by_serverid` 값이 정수가 아니거나 해당 ID의 서버가 존재하지 않는 경우.
-
-        Examples:
-            `gaming` 카테고리에 속하며 최소 5명의 멤버가 있는 모든 서버 검색:
-                GET /servers/?category=gaming&with_num_members=true&num_members__gte=5
-
-            인증된 사용자가 속한 첫 10개의 서버 검색:
-                GET /servers/?by_user=true&qty=10
 
         """
         category = request.query_params.get("category")
